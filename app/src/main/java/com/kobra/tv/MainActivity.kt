@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-// ওয়েবসাইটের থিম কালার
 val AppBg = Color(0xFF181623)
 val CardBg = Color(0xFF211F30)
 val AccentYellow = Color(0xFFFACC15)
@@ -60,13 +59,12 @@ fun AppScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    // States
     var channels by remember { mutableStateOf<List<Channel>>(emptyList()) }
-    var currentPlayingUrl by remember { mutableStateOf<String?>(null) }
+    var currentPlayingIndex by remember { mutableStateOf<Int?>(null) }
+    var currentPlayingList by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var currentTab by remember { mutableStateOf(Tab.CHANNELS) }
     
-    // Favorites State (SharedPreferences)
     val prefs = context.getSharedPreferences("kobra_prefs", Context.MODE_PRIVATE)
     var favoriteUrls by remember { 
         mutableStateOf(prefs.getStringSet("favorites", emptySet()) ?: emptySet()) 
@@ -76,18 +74,16 @@ fun AppScreen() {
 
     LaunchedEffect(Unit) {
         scope.launch {
-            // M3uParser আপনার প্রজেক্টে আগে থেকেই আছে ধরে নেওয়া হলো
+            // M3uParser থেকে ডেটা ফেচ
             channels = M3uParser.fetchChannels(m3uUrl)
             isLoading = false
         }
     }
 
-    // Hardware Back Button
-    BackHandler(enabled = currentPlayingUrl != null) {
-        currentPlayingUrl = null
+    BackHandler(enabled = currentPlayingIndex != null) {
+        currentPlayingIndex = null
     }
 
-    // TV Detection
     val configuration = LocalConfiguration.current
     val isTv = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
 
@@ -99,12 +95,15 @@ fun AppScreen() {
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppBg)) {
-        if (currentPlayingUrl != null) {
-            // আপনার VideoPlayer.kt এর ExoPlayerView
-            ExoPlayerView(videoUrl = currentPlayingUrl!!, modifier = Modifier.fillMaxSize())
+        if (currentPlayingIndex != null && currentPlayingList.isNotEmpty()) {
+            ExoPlayerView(
+                playlist = currentPlayingList,
+                initialIndex = currentPlayingIndex!!,
+                onBack = { currentPlayingIndex = null },
+                modifier = Modifier.fillMaxSize()
+            )
         } else {
             if (isTv) {
-                // TV Layout (Side Navigation)
                 Row(modifier = Modifier.fillMaxSize()) {
                     TvSideNav(currentTab) { currentTab = it }
                     ContentArea(
@@ -112,13 +111,15 @@ fun AppScreen() {
                         currentTab = currentTab,
                         channels = channels,
                         favoriteUrls = favoriteUrls,
-                        onPlay = { currentPlayingUrl = it },
+                        onPlay = { list, index -> 
+                            currentPlayingList = list
+                            currentPlayingIndex = index 
+                        },
                         onToggleFav = toggleFavorite,
                         modifier = Modifier.weight(1f)
                     )
                 }
             } else {
-                // Mobile Layout (Bottom Navigation)
                 Scaffold(
                     containerColor = AppBg,
                     bottomBar = { MobileBottomNav(currentTab) { currentTab = it } }
@@ -128,7 +129,10 @@ fun AppScreen() {
                         currentTab = currentTab,
                         channels = channels,
                         favoriteUrls = favoriteUrls,
-                        onPlay = { currentPlayingUrl = it },
+                        onPlay = { list, index -> 
+                            currentPlayingList = list
+                            currentPlayingIndex = index 
+                        },
                         onToggleFav = toggleFavorite,
                         modifier = Modifier.padding(padding)
                     )
@@ -144,7 +148,7 @@ fun ContentArea(
     currentTab: Tab,
     channels: List<Channel>,
     favoriteUrls: Set<String>,
-    onPlay: (String) -> Unit,
+    onPlay: (List<Channel>, Int) -> Unit,
     onToggleFav: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -155,24 +159,46 @@ fun ContentArea(
     }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // Search bar dummy placeholder as seen in screenshot
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+                .background(CardBg, RoundedCornerShape(8.dp))
+                .padding(12.dp)
         ) {
-            Text(
-                text = if (currentTab == Tab.CHANNELS) "All Channels" else "My Favorites",
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-            if (currentTab == Tab.FAVORITES) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.Gray)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (currentTab == Tab.CHANNELS) "Search channels by name..." else "Search your favorites...",
+                    color = Color.Gray,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        if (currentTab == Tab.FAVORITES && !isLoading) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .background(CardBg, RoundedCornerShape(8.dp))
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = "${displayChannels.size} saved",
                     color = AccentYellow,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color(0xFFF87171), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Clear All", color = Color(0xFFF87171), fontSize = 14.sp)
+                }
             }
         }
 
@@ -186,29 +212,27 @@ fun ContentArea(
             }
         } else {
             if (currentTab == Tab.CHANNELS) {
-                // Channels (Grid View - ওয়েবসাইটের প্রথম স্ক্রিনশট)
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    columns = GridCells.Adaptive(minSize = 160.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(displayChannels) { channel ->
+                    itemsIndexed(displayChannels) { index, channel ->
                         ChannelGridCard(
                             channel = channel,
                             isFavorite = favoriteUrls.contains(channel.url),
-                            onPlay = { onPlay(channel.url) },
+                            onPlay = { onPlay(displayChannels, index) },
                             onToggleFav = { onToggleFav(channel.url) }
                         )
                     }
                 }
             } else {
-                // Favorites (List View - ওয়েবসাইটের দ্বিতীয় স্ক্রিনশট)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(displayChannels) { channel ->
+                    itemsIndexed(displayChannels) { index, channel ->
                         ChannelListCard(
                             channel = channel,
                             isFavorite = favoriteUrls.contains(channel.url),
-                            onPlay = { onPlay(channel.url) },
+                            onPlay = { onPlay(displayChannels, index) },
                             onToggleFav = { onToggleFav(channel.url) }
                         )
                     }
@@ -217,8 +241,6 @@ fun ContentArea(
         }
     }
 }
-
-// ---------------- UI COMPONENTS ----------------
 
 @Composable
 fun MobileBottomNav(currentTab: Tab, onTabSelected: (Tab) -> Unit) {
@@ -292,8 +314,6 @@ fun ChannelGridCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-
-    // টিভিতে ফোকাস হলে কার্ডের বর্ডার হলুদ হবে
     val currentBorderColor = if (isFocused) AccentYellow else Color.Transparent
 
     Column(
@@ -302,34 +322,35 @@ fun ChannelGridCard(
             .border(2.dp, currentBorderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interactionSource, indication = null) { onPlay() }
             .focusable(interactionSource = interactionSource)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(16.dp)
     ) {
-        // স্ক্রিনশটের মতো সিগন্যাল আইকন
-        Icon(
-            imageVector = Icons.Default.SignalCellularAlt, 
-            contentDescription = null, 
-            tint = Color.Gray,
-            modifier = Modifier.size(32.dp)
-        )
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.SignalCellularAlt, 
+                contentDescription = null, 
+                tint = Color.Gray,
+                modifier = Modifier.size(32.dp)
+            )
+        }
         
         Spacer(modifier = Modifier.height(12.dp))
         
-        // চ্যানেলের নাম
         Text(
             text = channel.name, 
             color = Color.White, 
             fontWeight = FontWeight.Bold, 
-            fontSize = 16.sp,
+            fontSize = 15.sp,
             maxLines = 1, 
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
         )
         
-        // আপনার নির্দেশমতো গ্রুপ টাইটেল বাদ দেওয়া হয়েছে
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        TagBadge(channel.group)
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // ফেভারিট এবং ওয়াচ বাটন
         Row(
             modifier = Modifier.fillMaxWidth(), 
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -352,7 +373,8 @@ fun ChannelGridCard(
                 modifier = Modifier
                     .weight(1f)
                     .height(44.dp)
-                    .background(AccentYellow, RoundedCornerShape(8.dp)),
+                    .background(AccentYellow, RoundedCornerShape(8.dp))
+                    .clickable { onPlay() },
                 contentAlignment = Alignment.Center
             ) {
                 Text("Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -366,37 +388,48 @@ fun ChannelListCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     
-    val currentBorderColor = if (isFocused) AccentYellow else BorderColor
+    val currentBorderColor = if (isFocused) AccentYellow else Color.Transparent
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(CardBg, RoundedCornerShape(12.dp))
-            .border(1.dp, currentBorderColor, RoundedCornerShape(12.dp))
+            .border(2.dp, currentBorderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interactionSource, indication = null) { onPlay() }
             .focusable(interactionSource = interactionSource)
-            .padding(12.dp),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier.size(48.dp).background(Color(0xFF2A273F), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AccentYellow)
+            Icon(Icons.Default.Tv, contentDescription = null, tint = AccentYellow)
         }
         
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(text = channel.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(modifier = Modifier.height(4.dp))
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
+            Text(text = channel.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(6.dp))
             TagBadge(channel.group)
         }
         
-        IconButton(onClick = onToggleFav) {
+        Column(horizontalAlignment = Alignment.End) {
             Icon(
-                Icons.Default.Favorite,
+                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                 contentDescription = "Fav",
-                tint = if (isFavorite) AccentYellow else Color.Gray
+                tint = if (isFavorite) AccentYellow else Color.Gray,
+                modifier = Modifier.clickable { onToggleFav() }.padding(bottom = 8.dp)
             )
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .width(80.dp)
+                    .background(AccentYellow, RoundedCornerShape(20.dp))
+                    .clickable { onPlay() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
         }
     }
 }
@@ -409,8 +442,8 @@ fun TagBadge(group: String) {
         else -> AccentYellow to Color.Black
     }
     Box(
-        modifier = Modifier.background(bgColor, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
+        modifier = Modifier.background(bgColor, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        Text(text = group.uppercase(), color = textColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(text = group.uppercase(), color = textColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }

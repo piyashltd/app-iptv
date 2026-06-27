@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,8 +28,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,7 +45,8 @@ val PhoenixColor = Color(0xFF9CA3AF)
 val FalconColor = Color(0xFF38BDF8)
 val BorderColor = Color(0xFF334155)
 
-enum class Tab { CHANNELS, FAVORITES }
+// স্ক্রিনশটের ৫টি ট্যাব ডিক্লেয়ার করা হলো
+enum class Tab { KOBRA, CHANNELS, DISCORD, FAVORITES, MORE }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,7 +68,9 @@ fun AppScreen() {
     var currentPlayingIndex by remember { mutableStateOf<Int?>(null) }
     var currentPlayingList by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    
     var currentTab by remember { mutableStateOf(Tab.CHANNELS) }
+    var searchQuery by remember { mutableStateOf("") }
     
     val prefs = context.getSharedPreferences("kobra_prefs", Context.MODE_PRIVATE)
     var favoriteUrls by remember { 
@@ -74,10 +81,13 @@ fun AppScreen() {
 
     LaunchedEffect(Unit) {
         scope.launch {
-            // M3uParser থেকে ডেটা ফেচ
             channels = M3uParser.fetchChannels(m3uUrl)
             isLoading = false
         }
+    }
+
+    LaunchedEffect(currentTab) {
+        searchQuery = ""
     }
 
     BackHandler(enabled = currentPlayingIndex != null) {
@@ -94,6 +104,11 @@ fun AppScreen() {
         prefs.edit().putStringSet("favorites", newFavs).apply()
     }
 
+    val clearAllFavorites: () -> Unit = {
+        favoriteUrls = emptySet()
+        prefs.edit().putStringSet("favorites", emptySet()).apply()
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(AppBg)) {
         if (currentPlayingIndex != null && currentPlayingList.isNotEmpty()) {
             ExoPlayerView(
@@ -106,16 +121,23 @@ fun AppScreen() {
             if (isTv) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     TvSideNav(currentTab) { currentTab = it }
-                    ContentArea(
+                    MainContentArea(
                         isLoading = isLoading,
                         currentTab = currentTab,
                         channels = channels,
                         favoriteUrls = favoriteUrls,
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { searchQuery = it },
                         onPlay = { list, index -> 
                             currentPlayingList = list
                             currentPlayingIndex = index 
                         },
                         onToggleFav = toggleFavorite,
+                        onClearAllFavs = clearAllFavorites,
+                        onRefresh = { 
+                            isLoading = true
+                            scope.launch { channels = M3uParser.fetchChannels(m3uUrl); isLoading = false }
+                        },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -124,16 +146,23 @@ fun AppScreen() {
                     containerColor = AppBg,
                     bottomBar = { MobileBottomNav(currentTab) { currentTab = it } }
                 ) { padding ->
-                    ContentArea(
+                    MainContentArea(
                         isLoading = isLoading,
                         currentTab = currentTab,
                         channels = channels,
                         favoriteUrls = favoriteUrls,
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { searchQuery = it },
                         onPlay = { list, index -> 
                             currentPlayingList = list
                             currentPlayingIndex = index 
                         },
                         onToggleFav = toggleFavorite,
+                        onClearAllFavs = clearAllFavorites,
+                        onRefresh = { 
+                            isLoading = true
+                            scope.launch { channels = M3uParser.fetchChannels(m3uUrl); isLoading = false }
+                        },
                         modifier = Modifier.padding(padding)
                     )
                 }
@@ -143,61 +172,164 @@ fun AppScreen() {
 }
 
 @Composable
-fun ContentArea(
+fun MainContentArea(
     isLoading: Boolean,
     currentTab: Tab,
     channels: List<Channel>,
     favoriteUrls: Set<String>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
     onPlay: (List<Channel>, Int) -> Unit,
     onToggleFav: (String) -> Unit,
+    onClearAllFavs: () -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val displayChannels = if (currentTab == Tab.FAVORITES) {
-        channels.filter { favoriteUrls.contains(it.url) }
-    } else {
-        channels
-    }
-
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        // Search bar dummy placeholder as seen in screenshot
+        
+        // ** ওপরের SV FIFA হেডার বার **
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.GppGood, 
+                    contentDescription = "Verified",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "SV FIFA",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            // রিফ্রেশ বাটন (টিভি রিমোট ফোকাস সাপোর্টেড)
+            val refreshInteraction = remember { MutableInteractionSource() }
+            val isRefreshFocused by refreshInteraction.collectIsFocusedAsState()
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = "Refresh",
+                tint = if (isRefreshFocused) AccentYellow else Color.White,
+                modifier = Modifier
+                    .size(24.dp)
+                    .focusable(interactionSource = refreshInteraction)
+                    .clickable(interactionSource = refreshInteraction, indication = null) { onRefresh() }
+            )
+        }
+
+        if (currentTab != Tab.CHANNELS && currentTab != Tab.FAVORITES) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("${currentTab.name} Section Coming Soon...", color = Color.Gray)
+            }
+            return@Column
+        }
+
+        // ** ডি-প্যাড অপ্টিমাইজড সার্চ বার **
+        val searchInteractionSource = remember { MutableInteractionSource() }
+        val isSearchFocused by searchInteractionSource.collectIsFocusedAsState()
+        val searchBorderColor = if (isSearchFocused) AccentYellow else Color.Transparent
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
                 .background(CardBg, RoundedCornerShape(8.dp))
-                .padding(12.dp)
+                .border(2.dp, searchBorderColor, RoundedCornerShape(8.dp))
+                .focusable(interactionSource = searchInteractionSource)
+                .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.Gray)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (currentTab == Tab.CHANNELS) "Search channels by name..." else "Search your favorites...",
-                    color = Color.Gray,
-                    fontSize = 14.sp
-                )
+                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                
+                Box(modifier = Modifier.weight(1f)) {
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            text = if (currentTab == Tab.CHANNELS) "Search channels by name..." else "Search your favorites...",
+                            color = Color.Gray,
+                            fontSize = 14.sp
+                        )
+                    }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                        cursorBrush = SolidColor(AccentYellow),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                
+                if (searchQuery.isNotEmpty()) {
+                    Icon(
+                        Icons.Default.Clear,
+                        contentDescription = "Clear Search",
+                        tint = Color.Gray,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable { onSearchQueryChange("") }
+                    )
+                }
             }
         }
 
+        val tabChannels = if (currentTab == Tab.FAVORITES) {
+            channels.filter { favoriteUrls.contains(it.url) }
+        } else {
+            channels
+        }
+
+        val displayChannels = if (searchQuery.isEmpty()) {
+            tabChannels
+        } else {
+            tabChannels.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
+
+        // ** Clear All অপশন বার (টিভি রিমোট ফোকাস সাপোর্টেড) **
         if (currentTab == Tab.FAVORITES && !isLoading) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
                     .background(CardBg, RoundedCornerShape(8.dp))
-                    .padding(16.dp),
+                    .padding(14.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${displayChannels.size} saved",
+                    text = "${tabChannels.size} saved",
                     color = AccentYellow,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color(0xFFF87171), modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Clear All", color = Color(0xFFF87171), fontSize = 14.sp)
+                if (tabChannels.isNotEmpty()) {
+                    val clearFavInteraction = remember { MutableInteractionSource() }
+                    val isClearFavFocused by clearFavInteraction.collectIsFocusedAsState()
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .border(1.dp, if(isClearFavFocused) AccentYellow else Color.Transparent, RoundedCornerShape(4.dp))
+                            .focusable(interactionSource = clearFavInteraction)
+                            .clickable(interactionSource = clearFavInteraction, indication = null) { onClearAllFavs() }
+                            .padding(4.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete, 
+                            contentDescription = "Clear All", 
+                            tint = Color(0xFFF87171), 
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Clear All", color = Color(0xFFF87171), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
         }
@@ -208,12 +340,12 @@ fun ContentArea(
             }
         } else if (displayChannels.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No channels found.", color = Color.Gray)
+                Text(text = "No channels found.", color = Color.Gray)
             }
         } else {
             if (currentTab == Tab.CHANNELS) {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 160.dp),
+                    columns = GridCells.Adaptive(minSize = 150.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -242,98 +374,96 @@ fun ContentArea(
     }
 }
 
+// ** ৫টি অপশন বিশিষ্ট বটম নেভিগেশন বার (মোবাইল) **
 @Composable
 fun MobileBottomNav(currentTab: Tab, onTabSelected: (Tab) -> Unit) {
     NavigationBar(containerColor = Color(0xFF13111C), contentColor = Color.Gray) {
-        NavigationBarItem(
-            selected = currentTab == Tab.CHANNELS,
-            onClick = { onTabSelected(Tab.CHANNELS) },
-            icon = { Icon(Icons.Default.Tv, contentDescription = "Channels") },
-            label = { Text("Channels") },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = AccentYellow,
-                selectedTextColor = AccentYellow,
-                unselectedIconColor = Color.Gray,
-                unselectedTextColor = Color.Gray,
-                indicatorColor = Color.Transparent
+        val tabs = Tab.values()
+        tabs.forEach { tab ->
+            val icon = when(tab) {
+                Tab.KOBRA -> Icons.Default.Tune
+                Tab.CHANNELS -> Icons.Default.FeaturedPlayList
+                Tab.DISCORD -> Icons.Default.Shield
+                Tab.FAVORITES -> Icons.Default.Favorite
+                Tab.MORE -> Icons.Default.MoreHoriz
+            }
+            NavigationBarItem(
+                selected = currentTab == tab,
+                onClick = { onTabSelected(tab) },
+                icon = { Icon(icon, contentDescription = tab.name) },
+                label = { Text(tab.name, fontSize = 10.sp) },
+                colors = navigationBarColors()
             )
-        )
-        NavigationBarItem(
-            selected = currentTab == Tab.FAVORITES,
-            onClick = { onTabSelected(Tab.FAVORITES) },
-            icon = { Icon(Icons.Default.FavoriteBorder, contentDescription = "Favorites") },
-            label = { Text("Favorites") },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = AccentYellow,
-                selectedTextColor = AccentYellow,
-                unselectedIconColor = Color.Gray,
-                unselectedTextColor = Color.Gray,
-                indicatorColor = Color.Transparent
-            )
-        )
+        }
     }
 }
 
+// ** ৫টি অপশন বিশিষ্ট সাইড নেভিগেশন বার (অ্যান্ড্রয়েড টিভি রিমোট ফ্রেন্ডলি) **
 @Composable
 fun TvSideNav(currentTab: Tab, onTabSelected: (Tab) -> Unit) {
     NavigationRail(
         containerColor = Color(0xFF13111C),
         modifier = Modifier.fillMaxHeight().width(80.dp)
     ) {
-        Spacer(modifier = Modifier.height(32.dp))
-        NavigationRailItem(
-            selected = currentTab == Tab.CHANNELS,
-            onClick = { onTabSelected(Tab.CHANNELS) },
-            icon = { Icon(Icons.Default.Tv, contentDescription = "Channels") },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = AccentYellow,
-                unselectedIconColor = Color.Gray,
-                indicatorColor = Color(0xFF2A273F)
+        Spacer(modifier = Modifier.height(24.dp))
+        val tabs = Tab.values()
+        tabs.forEach { tab ->
+            val icon = when(tab) {
+                Tab.KOBRA -> Icons.Default.Tune
+                Tab.CHANNELS -> Icons.Default.FeaturedPlayList
+                Tab.DISCORD -> Icons.Default.Shield
+                Tab.FAVORITES -> Icons.Default.Favorite
+                Tab.MORE -> Icons.Default.MoreHoriz
+            }
+            
+            val interactionSource = remember { MutableInteractionSource() }
+            val isFocused by interactionSource.collectIsFocusedAsState()
+            
+            NavigationRailItem(
+                selected = currentTab == tab,
+                onClick = { onTabSelected(tab) },
+                icon = { Icon(icon, contentDescription = tab.name) },
+                modifier = Modifier
+                    .focusable(interactionSource = interactionSource)
+                    .border(2.dp, if(isFocused) AccentYellow else Color.Transparent, CircleShape),
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = AccentYellow,
+                    unselectedIconColor = Color.Gray,
+                    indicatorColor = Color(0xFF2A273F)
+                )
             )
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        NavigationRailItem(
-            selected = currentTab == Tab.FAVORITES,
-            onClick = { onTabSelected(Tab.FAVORITES) },
-            icon = { Icon(Icons.Default.FavoriteBorder, contentDescription = "Favorites") },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = AccentYellow,
-                unselectedIconColor = Color.Gray,
-                indicatorColor = Color(0xFF2A273F)
-            )
-        )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
     }
 }
 
 @Composable
-fun ChannelGridCard(
-    channel: Channel,
-    isFavorite: Boolean,
-    onPlay: () -> Unit,
-    onToggleFav: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val currentBorderColor = if (isFocused) AccentYellow else Color.Transparent
+fun navigationBarColors() = NavigationBarItemDefaults.colors(
+    selectedIconColor = AccentYellow,
+    selectedTextColor = AccentYellow,
+    unselectedIconColor = Color.Gray,
+    unselectedTextColor = Color.Gray,
+    indicatorColor = Color.Transparent
+)
 
+// ** গ্রিড কার্ড (টিভি রিমোটের সাহায্যে সুন্দর নেভিগেশন ও বাটন হাইলাইট সুবিধা সহ) **
+@Composable
+fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, onToggleFav: () -> Unit) {
     Column(
         modifier = Modifier
             .background(CardBg, RoundedCornerShape(12.dp))
-            .border(2.dp, currentBorderColor, RoundedCornerShape(12.dp))
-            .clickable(interactionSource = interactionSource, indication = null) { onPlay() }
-            .focusable(interactionSource = interactionSource)
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = Icons.Default.SignalCellularAlt, 
                 contentDescription = null, 
                 tint = Color.Gray,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(28.dp)
             )
         }
         
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         
         Text(
             text = channel.name, 
@@ -345,87 +475,120 @@ fun ChannelGridCard(
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
         
-        Spacer(modifier = Modifier.height(8.dp))
-        
+        Spacer(modifier = Modifier.height(10.dp))
         TagBadge(channel.group)
-        
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         
         Row(
             modifier = Modifier.fillMaxWidth(), 
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // ফেভারিট হার্ট বাটন (ডি-প্যাড ফোকাসে বর্ডার জ্বলবে)
+            val favInteraction = remember { MutableInteractionSource() }
+            val isFavFocused by favInteraction.collectIsFocusedAsState()
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(40.dp)
                     .background(Color(0xFF2A273F), RoundedCornerShape(8.dp))
-                    .clickable { onToggleFav() },
+                    .border(2.dp, if(isFavFocused) AccentYellow else Color.Transparent, RoundedCornerShape(8.dp))
+                    .focusable(interactionSource = favInteraction)
+                    .clickable(interactionSource = favInteraction, indication = null) { onToggleFav() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Fav",
                     tint = if (isFavorite) AccentYellow else Color.Gray,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
+
+            // ওয়াচ বাটন (ডি-প্যাড ফোকাসে ব্যাকগ্রাউন্ড আরও উজ্জ্বল হবে বা বর্ডার জ্বলবে)
+            val watchInteraction = remember { MutableInteractionSource() }
+            val isWatchFocused by watchInteraction.collectIsFocusedAsState()
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp)
-                    .background(AccentYellow, RoundedCornerShape(8.dp))
-                    .clickable { onPlay() },
+                    .height(40.dp)
+                    .background(if(isWatchFocused) Color.White else AccentYellow, RoundedCornerShape(8.dp))
+                    .border(2.dp, if(isWatchFocused) AccentYellow else Color.Transparent, RoundedCornerShape(8.dp))
+                    .focusable(interactionSource = watchInteraction)
+                    .clickable(interactionSource = watchInteraction, indication = null) { onPlay() },
                 contentAlignment = Alignment.Center
             ) {
-                Text("Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(
+                    text = "Watch", 
+                    color = Color.Black, 
+                    fontWeight = FontWeight.Bold, 
+                    fontSize = 14.sp
+                )
             }
         }
     }
 }
 
+// ** ফেভারিট লিস্ট কার্ড (টিভি রিমোট ফোকাস সাপোর্টেড) **
 @Composable
 fun ChannelListCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, onToggleFav: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    
-    val currentBorderColor = if (isFocused) AccentYellow else Color.Transparent
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(CardBg, RoundedCornerShape(12.dp))
-            .border(2.dp, currentBorderColor, RoundedCornerShape(12.dp))
-            .clickable(interactionSource = interactionSource, indication = null) { onPlay() }
-            .focusable(interactionSource = interactionSource)
-            .padding(16.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(48.dp).background(Color(0xFF2A273F), RoundedCornerShape(12.dp)),
+            modifier = Modifier
+                .size(46.dp)
+                .background(Color(0xFF2A273F), RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Tv, contentDescription = null, tint = AccentYellow)
+            Icon(Icons.Default.Tv, contentDescription = null, tint = AccentYellow, modifier = Modifier.size(22.dp))
         }
         
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            Text(text = channel.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Text(
+                text = channel.name, 
+                color = Color.White, 
+                fontWeight = FontWeight.Bold, 
+                fontSize = 15.sp, 
+                maxLines = 1, 
+                overflow = TextOverflow.Ellipsis
+            )
             Spacer(modifier = Modifier.height(6.dp))
             TagBadge(channel.group)
         }
         
-        Column(horizontalAlignment = Alignment.End) {
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.height(65.dp)
+        ) {
+            // লিস্টের হার্ট বাটন ফোকাস
+            val listFavInteraction = remember { MutableInteractionSource() }
+            val isListFavFocused by listFavInteraction.collectIsFocusedAsState()
             Icon(
-                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                imageVector = Icons.Default.Favorite,
                 contentDescription = "Fav",
-                tint = if (isFavorite) AccentYellow else Color.Gray,
-                modifier = Modifier.clickable { onToggleFav() }.padding(bottom = 8.dp)
+                tint = AccentYellow,
+                modifier = Modifier
+                    .size(20.dp)
+                    .focusable(interactionSource = listFavInteraction)
+                    .border(1.dp, if(isListFavFocused) AccentYellow else Color.Transparent, CircleShape)
+                    .clickable(interactionSource = listFavInteraction, indication = null) { onToggleFav() }
             )
+            
+            // লিস্টের ওয়াচ বাটন ফোকাস
+            val listWatchInteraction = remember { MutableInteractionSource() }
+            val isListWatchFocused by listWatchInteraction.collectIsFocusedAsState()
             Box(
                 modifier = Modifier
-                    .height(36.dp)
-                    .width(80.dp)
-                    .background(AccentYellow, RoundedCornerShape(20.dp))
-                    .clickable { onPlay() },
+                    .height(32.dp)
+                    .width(75.dp)
+                    .background(if(isListWatchFocused) Color.White else AccentYellow, RoundedCornerShape(16.dp))
+                    .border(2.dp, if(isListWatchFocused) AccentYellow else Color.Transparent, RoundedCornerShape(16.dp))
+                    .focusable(interactionSource = listWatchInteraction)
+                    .clickable(interactionSource = listWatchInteraction, indication = null) { onPlay() },
                 contentAlignment = Alignment.Center
             ) {
                 Text("Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -442,8 +605,8 @@ fun TagBadge(group: String) {
         else -> AccentYellow to Color.Black
     }
     Box(
-        modifier = Modifier.background(bgColor, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+        modifier = Modifier.background(bgColor, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
     ) {
-        Text(text = group.uppercase(), color = textColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(text = group.uppercase(), color = textColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
     }
 }

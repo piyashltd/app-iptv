@@ -45,7 +45,7 @@ val PhoenixColor = Color(0xFF9CA3AF)
 val FalconColor = Color(0xFF38BDF8)
 val BorderColor = Color(0xFF334155)
 
-// স্ক্রিনশটের ৫টি ট্যাব ডিক্লেয়ার করা হলো
+// ৫টি ট্যাব অপশন
 enum class Tab { KOBRA, CHANNELS, DISCORD, FAVORITES, MORE }
 
 class MainActivity : ComponentActivity() {
@@ -187,7 +187,7 @@ fun MainContentArea(
 ) {
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         
-        // ** ওপরের SV FIFA হেডার বার **
+        // ** ওপরের কাস্টম হেডার বার (কোনো KOBRA CHANNELS টেক্সট নেই) **
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -211,7 +211,7 @@ fun MainContentArea(
                 )
             }
             
-            // রিফ্রেশ বাটন (টিভি রিমোট ফোকাস সাপোর্টেড)
+            // ডি-প্যাড অপ্টিমাইজড রিফ্রেশ বাটন
             val refreshInteraction = remember { MutableInteractionSource() }
             val isRefreshFocused by refreshInteraction.collectIsFocusedAsState()
             Icon(
@@ -292,7 +292,7 @@ fun MainContentArea(
             tabChannels.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
 
-        // ** Clear All অপশন বার (টিভি রিমোট ফোকাস সাপোর্টেড) **
+        // ** Clear All অপশন বার **
         if (currentTab == Tab.FAVORITES && !isLoading) {
             Row(
                 modifier = Modifier
@@ -446,7 +446,7 @@ fun navigationBarColors() = NavigationBarItemDefaults.colors(
     indicatorColor = Color.Transparent
 )
 
-// ** গ্রিড কার্ড (টিভি রিমোটের সাহায্যে সুন্দর নেভিগেশন ও বাটন হাইলাইট সুবিধা সহ) **
+// ** গ্রিড কার্ড (টিভি রিমোট অপ্টিমাইজড) **
 @Composable
 fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, onToggleFav: () -> Unit) {
     Column(
@@ -483,7 +483,6 @@ fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
             modifier = Modifier.fillMaxWidth(), 
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ফেভারিট হার্ট বাটন (ডি-প্যাড ফোকাসে বর্ডার জ্বলবে)
             val favInteraction = remember { MutableInteractionSource() }
             val isFavFocused by favInteraction.collectIsFocusedAsState()
             Box(
@@ -503,7 +502,6 @@ fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
                 )
             }
 
-            // ওয়াচ বাটন (ডি-প্যাড ফোকাসে ব্যাকগ্রাউন্ড আরও উজ্জ্বল হবে বা বর্ডার জ্বলবে)
             val watchInteraction = remember { MutableInteractionSource() }
             val isWatchFocused by watchInteraction.collectIsFocusedAsState()
             Box(
@@ -516,18 +514,13 @@ fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
                     .clickable(interactionSource = watchInteraction, indication = null) { onPlay() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "Watch", 
-                    color = Color.Black, 
-                    fontWeight = FontWeight.Bold, 
-                    fontSize = 14.sp
-                )
+                Text(text = "Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
     }
 }
 
-// ** ফেভারিট লিস্ট কার্ড (টিভি রিমোট ফোকাস সাপোর্টেড) **
+// ** ফেভারিট লিস্ট কার্ড (টিভি রিমোট অপ্টিমাইজড) **
 @Composable
 fun ChannelListCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, onToggleFav: () -> Unit) {
     Row(
@@ -564,7 +557,6 @@ fun ChannelListCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
             verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.height(65.dp)
         ) {
-            // লিস্টের হার্ট বাটন ফোকাস
             val listFavInteraction = remember { MutableInteractionSource() }
             val isListFavFocused by listFavInteraction.collectIsFocusedAsState()
             Icon(
@@ -578,7 +570,6 @@ fun ChannelListCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
                     .clickable(interactionSource = listFavInteraction, indication = null) { onToggleFav() }
             )
             
-            // লিস্টের ওয়াচ বাটন ফোকাস
             val listWatchInteraction = remember { MutableInteractionSource() }
             val isListWatchFocused by listWatchInteraction.collectIsFocusedAsState()
             Box(

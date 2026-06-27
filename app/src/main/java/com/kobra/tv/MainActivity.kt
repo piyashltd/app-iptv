@@ -284,45 +284,65 @@ fun TvSideNav(currentTab: Tab, onTabSelected: (Tab) -> Unit) {
 }
 
 @Composable
-fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, onToggleFav: () -> Unit) {
+fun ChannelGridCard(
+    channel: Channel,
+    isFavorite: Boolean,
+    onPlay: () -> Unit,
+    onToggleFav: () -> Unit
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val currentBorderColor = if (isFocused || isFavorite) AccentYellow.copy(alpha = 0.5f) else BorderColor
+    // টিভিতে ফোকাস হলে কার্ডের বর্ডার হলুদ হবে
+    val currentBorderColor = if (isFocused) AccentYellow else Color.Transparent
 
     Column(
         modifier = Modifier
             .background(CardBg, RoundedCornerShape(12.dp))
-            .border(1.dp, currentBorderColor, RoundedCornerShape(12.dp))
+            .border(2.dp, currentBorderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interactionSource, indication = null) { onPlay() }
             .focusable(interactionSource = interactionSource)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier.size(48.dp).background(Color(0xFF2A273F), RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center
+        // স্ক্রিনশটের মতো সিগন্যাল আইকন
+        Icon(
+            imageVector = Icons.Default.SignalCellularAlt, 
+            contentDescription = null, 
+            tint = Color.Gray,
+            modifier = Modifier.size(32.dp)
+        )
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // চ্যানেলের নাম
+        Text(
+            text = channel.name, 
+            color = Color.White, 
+            fontWeight = FontWeight.Bold, 
+            fontSize = 16.sp,
+            maxLines = 1, 
+            overflow = TextOverflow.Ellipsis
+        )
+        
+        // আপনার নির্দেশমতো গ্রুপ টাইটেল বাদ দেওয়া হয়েছে
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // ফেভারিট এবং ওয়াচ বাটন
+        Row(
+            modifier = Modifier.fillMaxWidth(), 
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Default.Tv, contentDescription = null, tint = Color.Gray)
-        }
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(text = channel.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(modifier = Modifier.height(6.dp))
-        TagBadge(channel.group)
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(44.dp)
                     .background(Color(0xFF2A273F), RoundedCornerShape(8.dp))
-                    .border(1.dp, BorderColor, RoundedCornerShape(8.dp))
                     .clickable { onToggleFav() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Favorite,
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Fav",
                     tint = if (isFavorite) AccentYellow else Color.Gray,
                     modifier = Modifier.size(20.dp)
@@ -331,11 +351,11 @@ fun ChannelGridCard(channel: Channel, isFavorite: Boolean, onPlay: () -> Unit, o
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
+                    .height(44.dp)
                     .background(AccentYellow, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Watch", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
         }
     }
